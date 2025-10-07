@@ -154,8 +154,7 @@ app.post('/api/signout', async (req, res) => {
             res.status(401).send();
             return;
         }
-        const session = responseSession?.rows?.[0];
-        await client.query('DELETE FROM auth.public.sessions WHERE userid=$1', [session.userid]);
+        await client.query('DELETE FROM auth.public.sessions WHERE sessionid=$1', [sessionId]);
         res.cookie('sessionId', null, {
             expires: 0,
             secure: false,
@@ -175,7 +174,7 @@ app.listen(port, () => {
 })
 
 async function createSession(userId) {
-    await client.query('DELETE FROM auth.public.sessions WHERE userid=$1', [userId]);
+    await client.query('DELETE FROM auth.public.sessions WHERE expiresat<to_timestamp($1)', [Math.floor(Date.now() / 1000)]);
     const sessionId = crypto.randomUUID();
     await client.query('INSERT INTO auth.public.sessions (sessionid, userid, expiresat) VALUES ($1, $2, to_timestamp($3))', [sessionId, userId, Math.floor((Date.now() + 1000 * 3600 * 24 * 30) / 1000)]);
     return sessionId;
