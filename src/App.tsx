@@ -41,11 +41,11 @@ function App() {
             })
             .finally(() =>         setIsLoadingUserData(false));
     }, []);
-    async function logInCallback(username: string, password: string) {
+    async function logInCallback(username: string, password: string, withJwt: boolean) {
         if (!username || !password) {
             return;
         }
-        const loginData = await logIn(username, password);
+        const loginData = await logIn(username, password, withJwt);
         setUserData({
             loggedIn: loginData.loggedIn,
             username: loginData.username,
@@ -53,11 +53,11 @@ function App() {
         });
     }
 
-    async function registerCallback(username: string, password: string) {
+    async function registerCallback(username: string, password: string, withJwt: boolean) {
         if (!username || !password) {
             return;
         }
-        const registerData = await register(username, password);
+        const registerData = await register(username, password, withJwt);
         setUserData({
             loggedIn: registerData.loggedIn,
             username: registerData.username,
@@ -90,7 +90,7 @@ function App() {
 
     async function signOut() {
         try {
-            const result = await fetch(`${BACKEND_URL}/api/signout`, {
+            await fetch(`${BACKEND_URL}/api/signout`, {
                 method: 'POST',
                 credentials: 'include',
                 headers: {
@@ -131,13 +131,14 @@ function App() {
   )
 }
 
-async function register(username: string, password: string) {
+async function register(username: string, password: string, withJwt: boolean) {
     try {
         const response = await fetch(`${BACKEND_URL}/api/register`, {
             method: 'POST',
             body: JSON.stringify({
                 username,
                 password,
+                withJwt,
             }),
             credentials: 'include',
             headers: {
@@ -157,13 +158,14 @@ async function register(username: string, password: string) {
     }
 }
 
-async function logIn(username: string, password: string) {
+async function logIn(username: string, password: string, withJwt: boolean) {
     try {
         const response = await fetch(`${BACKEND_URL}/api/login`, {
             method: 'POST',
             body: JSON.stringify({
                 username,
                 password,
+                withJwt,
             }),
             credentials: 'include',
             headers: {

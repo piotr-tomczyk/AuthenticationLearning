@@ -1,6 +1,6 @@
 import {useState} from "react";
 
-type callbackType = (username: string, password: string) => void;
+type callbackType = (username: string, password: string, withJwt: boolean) => void;
 
 interface AuthProps {
     logIn: callbackType;
@@ -10,6 +10,7 @@ interface AuthProps {
 function Auth({ logIn, register}: AuthProps) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [withJwt, setWithJwt] = useState(false);
 
     return (
         <>
@@ -22,12 +23,15 @@ function Auth({ logIn, register}: AuthProps) {
                    value={password}
                    onChange={e => setPassword(e.target.value)} />
             <br />
-            <button onClick={() => register(username, password)}>
+            <button onClick={() => register(username, password, withJwt)}>
                 Sign Up
             </button>
-            <button onClick={() => logIn(username, password)}>
+            <button onClick={() => logIn(username, password, withJwt)}>
                 Log In
             </button>
+            <br />
+            <span>With JWT?</span>
+            <input type="checkbox" checked={withJwt} onChange={() => setWithJwt(!withJwt)}/>
         </>
 
     )
