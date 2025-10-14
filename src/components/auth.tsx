@@ -1,4 +1,5 @@
 import {useState} from "react";
+import {BACKEND_URL} from "../constants.ts";
 
 type callbackType = (username: string, password: string, withJwt: boolean) => void;
 
@@ -7,7 +8,7 @@ interface AuthProps {
     register: callbackType;
 }
 
-function Auth({ logIn, register}: AuthProps) {
+function Auth({ logIn, register }: AuthProps) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [withJwt, setWithJwt] = useState(false);
@@ -32,6 +33,12 @@ function Auth({ logIn, register}: AuthProps) {
             <br />
             <span>With JWT?</span>
             <input type="checkbox" checked={withJwt} onChange={() => setWithJwt(!withJwt)}/>
+            <a href={`${BACKEND_URL}/api/login/discord`}>
+                <button>
+                    Discord login
+                </button>
+            </a>
+            <br />
         </>
 
     )

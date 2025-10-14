@@ -9,6 +9,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const connectionString = "postgres://postgres:admin@localhost:5432/auth";
 const jwt = require('jsonwebtoken');
+const DiscordStrategy = require('passport-discord').Strategy;
+const passport = require('passport');
+const dotenv = require('dotenv').config()
 
 const client = new pg.Client(connectionString);
 client.connect();
@@ -18,6 +21,8 @@ app.use(cors({
     origin: 'http://localhost:5173',
     credentials: true,
 }));
+
+registerDiscordAuth();
 
 app.get('/api', async (req, res) => {
     const response = await client.query('SELECT * FROM auth.public.users');
@@ -93,7 +98,7 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { username, password, withJwt, } = req.body;
     try {
-        const response = await client.query('SELECT * FROM auth.public.users WHERE username = $1', [username]);
+        const response = await client.query('SELECT * FROM auth.public.users WHERE username = $1 AND login_type != $2', [username, 'discord']);
         if (!response?.rows?.length) {
             res.status(400).send({ loggedIn: false });
             return;
@@ -184,7 +189,8 @@ app.post('/api/signout', async (req, res) => {
             res.status(401).send();
             return;
         }
-        if (jwtToken) {
+
+        if (jwtToken && jwtToken !== 'j:null') {
             res.cookie('jwtToken', null, {
                 expires: 0,
                 secure: false,
@@ -219,6 +225,23 @@ app.post('/api/signout', async (req, res) => {
 
 });
 
+app.get('/api/login/discord', passport.authenticate('discord'), async (req, res) => {
+    res.status(200).send();
+});
+
+app.get('/api/discord/callback', (req, res, next) => {
+    passport.authenticate('discord', { failureRedirect: '/' }, async (user) => {
+        const session = await createSession(user.id);
+        res.cookie('sessionId', session, {
+            expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
+            secure: false,
+            httpOnly: true,
+            sameSite: 'strict',
+        });
+        // Successful authentication
+        res.redirect('http://localhost:5173');
+    })(req, res, next);
+});
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
@@ -245,4 +268,31 @@ async function generatePassword(password) {
 }
 function validPassword(password, hash) {
     return bcrypt.compare(password, hash);
+}
+
+function registerDiscordAuth() {
+    const authScopes = ['identify', 'email'];
+    passport.use(new DiscordStrategy({
+            clientID: process.env.DISCORD_CLIENT_ID,
+            clientSecret: process.env.DISCORD_CLIENT_SECRET,
+            callbackURL: 'http://localhost:3000/api/discord/callback',
+            scope: authScopes
+        },
+        async function(accessToken, refreshToken, profile, cb) {
+            try {
+                const userResponse = await client.query('SELECT * FROM auth.public.users WHERE userid = $1', [profile.id]);
+                if (userResponse?.rows?.length > 0) {
+                    return cb(profile);
+                }
+                await client.query(
+                    'INSERT INTO auth.public.users (userid, username, password, login_type) VALUES ($1, $2, $3, $4)',
+                    [profile.id, profile.username, '', 'discord']
+                );
+
+                return cb(JSON.stringify(profile));
+            } catch(error) {
+                console.log('Error authenticating with discord', error);
+            }
+
+    }));
 }

@@ -41,6 +41,7 @@ function App() {
             })
             .finally(() =>         setIsLoadingUserData(false));
     }, []);
+
     async function logInCallback(username: string, password: string, withJwt: boolean) {
         if (!username || !password) {
             return;
@@ -123,7 +124,7 @@ function App() {
                         Sign Out
                     </button>
                 </span>
-            </div> : <Auth logIn={logInCallback} register={registerCallback}/>}
+            </div> : <Auth logIn={logInCallback} register={registerCallback} />}
             {/*<Users />*/}
             {/*<Register />*/}
         </ main>
