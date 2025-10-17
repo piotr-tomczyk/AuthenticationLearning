@@ -30,28 +30,69 @@ app.get('/api', async (req, res) => {
 })
 
 app.get('/api/me', async (req, res) => {
-    const {sessionId} = req.cookies;
-    if (!sessionId) {
+    const {sessionId, authJwtToken, refreshJwtToken} = req.cookies;
+    if ((!sessionId || sessionId === 'j:null') &&
+        (!authJwtToken || authJwtToken === 'j:null') &&
+        (!refreshJwtToken || refreshJwtToken === 'j:null')
+    ) {
         res.json({
             loggedIn: false,
         });
         return;
     }
-    const responseSession = await client.query('SELECT * FROM auth.public.sessions WHERE sessionid = $1', [sessionId]);
-    if (!responseSession.rows.length) {
-        res.json({
-            loggedIn: false,
-        });
-        return;
-    }
-    if (responseSession?.rows?.[0]?.expiresat?.getTime() < Date.now()) {
+    let userId;
+    let user;
+    if (sessionId && sessionId !== 'j:null') {
+        const responseSession = await client.query('SELECT * FROM auth.public.sessions WHERE sessionid = $1', [sessionId]);
+        const session = responseSession?.rows?.[0];
+        userId = session.userid;
+        if (!responseSession.rows.length) {
+            res.json({
+                loggedIn: false,
+            });
+            return;
+        }
+        if (session.expiresat?.getTime() < Date.now()) {
+            res.json({
+                loggedIn: false,
+            })
+            return;
+        }
+    } else if (refreshJwtToken && refreshJwtToken !== 'j:null') {
+        const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
+        try {
+            const payload = jwt.verify(refreshJwtToken, secret);
+            userId = payload.userId;
+            const responseUser = await client.query('SELECT * FROM auth.public.users WHERE userid = $1', [userId]);
+            user = responseUser.rows[0];
+            if (user.refresh_jwt_version !== payload.version) {
+                console.error('Refresh JWT version doesnt match');
+                res.status(401).send();
+            } else {
+                const authJwtToken = await createJwt(userId);
+                res.cookie('authJwtToken', authJwtToken, {
+                    expires: new Date(Date.now() + 1000 * 60 * 2),
+                    secure: false,
+                    httpOnly: true,
+                    sameSite: 'strict',
+                });
+            }
+        } catch (error) {
+            console.error('api/me Error verifying refreshJWT', error);
+            res.status(401).send();
+        }
+    } else {
         res.json({
             loggedIn: false,
         })
         return;
     }
-    const responseUser = await client.query('SELECT * FROM auth.public.users WHERE userid = $1', [responseSession.rows[0].userid]);
-    const user = responseUser.rows[0];
+
+    if (!user) {
+        const responseUser = await client.query('SELECT * FROM auth.public.users WHERE userid = $1', [userId]);
+        user = responseUser.rows[0];
+    }
+
     res.json({
         loggedIn: true,
         username: user.username,
@@ -71,9 +112,17 @@ app.post('/api/register', async (req, res) => {
         const userId = crypto.randomUUID();
         await client.query('INSERT INTO auth.public.users (userid, username, password) VALUES ($1, $2, $3)', [userId, username, hashedPassword]);
         if (withJwt) {
-            const jwtToken = await createJwt(userId);
-            res.cookie('jwtToken', jwtToken, {
-                expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
+            const authJwtToken = await createJwt(userId);
+            const refreshJwtToken = await createRefreshJwt(userId, "1");
+            res.cookie('authJwtToken', authJwtToken, {
+                expires: new Date(Date.now() + 1000 * 60 * 2),
+                secure: false,
+                httpOnly: true,
+                sameSite: 'strict',
+            });
+
+            res.cookie('refreshJwtToken', refreshJwtToken, {
+                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
                 secure: false,
                 httpOnly: true,
                 sameSite: 'strict',
@@ -110,9 +159,19 @@ app.post('/api/login', async (req, res) => {
             return;
         }
         if (withJwt) {
-            const jwtToken = await createJwt(user.userid);
-            res.cookie('jwtToken', jwtToken, {
-                expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
+            const userId = user.userid;
+            const refreshTokenVersion = user.refresh_jwt_version;
+            const authJwtToken = await createJwt(userId);
+            const refreshJwtToken = await createRefreshJwt(userId, refreshTokenVersion);
+            res.cookie('authJwtToken', authJwtToken, {
+                expires: new Date(Date.now() + 1000 * 60 * 2),
+                secure: false,
+                httpOnly: true,
+                sameSite: 'strict',
+            });
+
+            res.cookie('refreshJwtToken', refreshJwtToken, {
+                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
                 secure: false,
                 httpOnly: true,
                 sameSite: 'strict',
@@ -135,22 +194,48 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.patch('/api/increment', async (req, res) => {
-    const { sessionId, jwtToken } = req.cookies;
-    if (!sessionId && jwtToken === 'j:null') {
+    const { sessionId, authJwtToken, refreshJwtToken } = req.cookies;
+    if ((!sessionId || sessionId === 'j:null')
+        && (!authJwtToken || authJwtToken === 'j:null')
+        && (!refreshJwtToken || refreshJwtToken === 'j:null')
+    ) {
         res.status(401).send();
         return;
     }
     let userId;
-    if (jwtToken && jwtToken !== 'j:null') {
+    let user;
+    if (authJwtToken && authJwtToken !== 'j:null') {
+        const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
         try {
-            const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
-            const payload = jwt.verify(jwtToken, secret);
+            const payload = jwt.verify(authJwtToken, secret);
             userId = payload.userId;
         } catch (error) {
-            console.error('api/increment Error verifying JWT', error);
-            res.status(401).send();
+            if (error.message !== 'jwt expired') {
+                console.error('api/increment Error verifying authJWT', error);
+                res.status(401).send();
+            }
+            try {
+                const payload = jwt.verify(refreshJwtToken, secret);
+                userId = payload.userId;
+                const responseUser = await client.query('SELECT * FROM auth.public.users WHERE userid = $1', [userId]);
+                user = responseUser.rows[0];
+                if (user.refresh_jwt_version !== payload.version) {
+                    console.error('Refresh JWT version doesnt match');
+                    res.status(401).send();
+                } else {
+                    const authJwtToken = await createJwt(userId);
+                    res.cookie('authJwtToken', authJwtToken, {
+                        expires: new Date(Date.now() + 1000 * 60 * 2),
+                        secure: false,
+                        httpOnly: true,
+                        sameSite: 'strict',
+                    });
+                }
+            } catch (error) {
+                console.error('api/increment Error verifying refreshJWT', error);
+                res.status(401).send();
+            }
         }
-
     } else {
         const responseSession = await client.query('SELECT * FROM auth.public.sessions WHERE sessionid = $1', [sessionId]);
         if (!responseSession.rows.length) {
@@ -172,32 +257,62 @@ app.patch('/api/increment', async (req, res) => {
 
 app.post('/api/signout', async (req, res) => {
     try {
-        const { sessionId, jwtToken } = req.cookies;
-        if (!sessionId && !jwtToken) {
+        const { sessionId, authJwtToken, refreshJwtToken } = req.cookies;
+        if ((!sessionId || sessionId === 'j:null')
+        && (!authJwtToken || authJwtToken === 'j:null')
+        && (!refreshJwtToken || refreshJwtToken === 'j:null')) {
             res.cookie('sessionId', null, {
                 expires: 1,
                 secure: false,
                 httpOnly: true,
                 sameSite: 'strict',
             });
-            res.cookie('jwtToken', null, {
+            res.cookie('authJwtToken', null, {
                 expires: 1,
                 secure: false,
                 httpOnly: true,
                 sameSite: 'strict',
             });
+            res.cookie('refreshJwtToken', null, {
+                expires: 1,
+                secure: false,
+                httpOnly: true,
+                sameSite: 'strict',
+            });
+
             res.status(401).send();
             return;
         }
 
-        if (jwtToken && jwtToken !== 'j:null') {
-            res.cookie('jwtToken', null, {
+        if (refreshJwtToken && refreshJwtToken !== 'j:null') {
+            const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8' });
+            try {
+                const payload = jwt.verify(refreshJwtToken, secret);
+                const { userId } = payload;
+                const newVersion = crypto.randomUUID();
+                await client.query(
+                    'UPDATE auth.public.users SET refresh_jwt_version = $1 WHERE userid = $2;',
+                    [newVersion, userId]
+                );
+            } catch (error) {
+                console.error('api/signout Error verifying refreshJWT or updating refresh_token_version', error);
+                res.status(401).send();
+            }
+
+            res.cookie('refreshJwtToken', null, {
                 expires: 0,
                 secure: false,
                 httpOnly: true,
                 sameSite: 'strict',
             });
-        } else {
+            res.cookie('authJwtToken', null, {
+                expires: 0,
+                secure: false,
+                httpOnly: true,
+                sameSite: 'strict',
+            });
+        }
+        if (sessionId && sessionId !== 'j:null') {
             const responseSession = await client.query('SELECT * FROM auth.public.sessions WHERE sessionid = $1', [sessionId]);
             if (!responseSession.rows.length) {
                 res.cookie('sessionId', null, {
@@ -257,7 +372,17 @@ async function createJwt(userId) {
     const payload = {
         userId,
     };
-    const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
+    const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8' });
+    const jwtToken = jwt.sign(payload, secret, { algorithm: 'RS256', expiresIn: '1m' });
+    return jwtToken;
+}
+
+async function createRefreshJwt(userId, version = "1") {
+    const payload = {
+        userId,
+        version,
+    };
+    const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "30d" });
     const jwtToken = jwt.sign(payload, secret, { algorithm: 'RS256' });
     return jwtToken;
 }
@@ -289,7 +414,7 @@ function registerDiscordAuth() {
                     [profile.id, profile.username, '', 'discord']
                 );
 
-                return cb(JSON.stringify(profile));
+                return cb(profile);
             } catch(error) {
                 console.log('Error authenticating with discord', error);
             }
