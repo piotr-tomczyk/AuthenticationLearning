@@ -1,0 +1,7 @@
+- [ ] Extract fetching user / session to a function
+- [ ] Extract JWT verification to a function
+- [ ] Move functions to service and utils files
+- [ ] Move routes to different files
+- [ ] Create middleware for auth
+- [ ] Robust try / catch error handling
+- [ ] Use NeverThrow library

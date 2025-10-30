@@ -58,39 +58,19 @@ app.get('/api/me', async (req, res) => {
             return;
         }
     } else if (cookieValueExists(refreshJwtToken)) {
-        const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
-        try {
-            const payload = jwt.verify(refreshJwtToken, secret);
-            userId = payload.userId;
-            const userResponse = await queryDatabase(
-                `SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`,
-                [userId]
-            );
-            if (!areUserParamsValid(userResponse)) {
+        const handleRefreshTokenResponse
+            = await handleJwtTokenRefresh(res, refreshJwtToken, 'api/me');
+        if (handleRefreshTokenResponse.error) {
+            if (handleRefreshTokenResponse.error.message === 'no_valid_params') {
                 res.status(404).send();
                 return;
-            }
-
-            user = mapDatabaseUser(userResponse);
-
-            if (user.refreshJwtVersion !== payload?.version) {
-                console.error('Refresh JWT version doesnt match');
+            } else {
                 res.status(401).send();
                 return;
-            } else {
-                const authJwtToken = await createJwt(userId);
-                res.cookie('authJwtToken', authJwtToken, {
-                    expires: new Date(Date.now() + 1000 * 60 * 2),
-                    secure: false,
-                    httpOnly: true,
-                    sameSite: 'strict',
-                });
             }
-        } catch (error) {
-            console.error('api/me Error verifying refreshJWT', error);
-            res.status(401).send();
-            return;
         }
+        user = handleRefreshTokenResponse.user;
+        userId = handleRefreshTokenResponse.userId;
     } else {
         res.json({
             loggedIn: false,
@@ -130,27 +110,12 @@ app.post('/api/register', async (req, res) => {
         if (withJwt) {
             const authJwtToken = await createJwt(userId);
             const refreshJwtToken = await createRefreshJwt(userId, "1");
-            res.cookie('authJwtToken', authJwtToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 2),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
 
-            res.cookie('refreshJwtToken', refreshJwtToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            setAuthJwtCookie(res, authJwtToken)
+            setRefreshJwtCookie(res, refreshJwtToken);
         } else {
             const session = await createSession(userId);
-            res.cookie('sessionId', session, {
-                expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            setSessionCookie(res, session);
         }
         res.setHeader('Content-Type', 'application/json');
         res.status(201).json({ loggedIn: true, username, count: 0 });
@@ -181,27 +146,12 @@ app.post('/api/login', async (req, res) => {
             const refreshTokenVersion = user.refreshJwtVersion;
             const authJwtToken = await createJwt(userId);
             const refreshJwtToken = await createRefreshJwt(userId, refreshTokenVersion);
-            res.cookie('authJwtToken', authJwtToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 2),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
 
-            res.cookie('refreshJwtToken', refreshJwtToken, {
-                expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            setAuthJwtCookie(res, authJwtToken)
+            setRefreshJwtCookie(res, refreshJwtToken);
         } else {
             const session = await createSession(user.userId);
-            res.cookie('sessionId', session, {
-                expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            setSessionCookie(res, session);
         }
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json({ loggedIn: true, username: user.username, count: user.count });
@@ -229,34 +179,19 @@ app.patch('/api/increment', async (req, res) => {
                 console.error('api/increment Error verifying authJWT', error);
                 res.status(401).send();
             }
-            try {
-                const payload = jwt.verify(refreshJwtToken, secret);
-                userId = payload.userId;
-                const userResponse = await queryDatabase(`SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`, [userId]);
-                if (!areUserParamsValid(userResponse)) {
+
+            const handleRefreshTokenResponse = await handleJwtTokenRefresh(res, refreshJwtToken, 'api/increment');
+            if (handleRefreshTokenResponse.error) {
+                if (handleRefreshTokenResponse.error.message === 'no_valid_params') {
                     res.status(404).send();
                     return;
-                }
-
-                user = mapDatabaseUser(userResponse);
-                if (user.refreshJwtVersion !== payload.version) {
-                    console.error('Refresh JWT version doesnt match');
+                } else {
                     res.status(401).send();
                     return;
-                } else {
-                    const authJwtToken = await createJwt(userId);
-                    res.cookie('authJwtToken', authJwtToken, {
-                        expires: new Date(Date.now() + 1000 * 60 * 2),
-                        secure: false,
-                        httpOnly: true,
-                        sameSite: 'strict',
-                    });
                 }
-            } catch (error) {
-                console.error('api/increment Error verifying refreshJWT', error);
-                res.status(401).send();
-                return;
             }
+
+            userId = handleRefreshTokenResponse.userId;
         }
     } else {
         const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
@@ -282,24 +217,9 @@ app.post('/api/signout', async (req, res) => {
     try {
         const { sessionId, refreshJwtToken } = req.cookies;
         if (!cookieValuesExist(req.cookies)) {
-            res.cookie('sessionId', null, {
-                expires: 1,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
-            res.cookie('authJwtToken', null, {
-                expires: 1,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
-            res.cookie('refreshJwtToken', null, {
-                expires: 1,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            clearCookie(res, 'sessionId');
+            clearCookie(res, 'refreshJwtToken');
+            clearCookie(res, 'authJwtToken');
 
             res.status(401).send();
             return;
@@ -320,40 +240,21 @@ app.post('/api/signout', async (req, res) => {
                 res.status(401).send();
             }
 
-            res.cookie('refreshJwtToken', null, {
-                expires: 0,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
-            res.cookie('authJwtToken', null, {
-                expires: 0,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            clearCookie(res, 'refreshJwtToken');
+            clearCookie(res, 'authJwtToken');
         }
         if (cookieValueExists(sessionId)) {
             const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
             if (!areSessionParamsValid(sessionResponse)) {
-                res.cookie('sessionId', null, {
-                    expires: 0,
-                    secure: false,
-                    httpOnly: true,
-                    sameSite: 'strict',
-                });
+
+                clearCookie(res, 'sessionId');
                 res.status(401).send();
                 return;
             }
 
             await queryDatabase(`DELETE FROM ${SESSIONS_TABLE_NAME} WHERE sessionid=$1`, [sessionId]);
 
-            res.cookie('sessionId', null, {
-                expires: 0,
-                secure: false,
-                httpOnly: true,
-                sameSite: 'strict',
-            });
+            clearCookie(res, 'sessionId');
         }
         res.status(200).send();
     } catch(error) {
@@ -370,12 +271,7 @@ app.get('/api/login/discord', passport.authenticate('discord'), async (req, res)
 app.get('/api/discord/callback', (req, res, next) => {
     passport.authenticate('discord', { failureRedirect: '/' }, async (user) => {
         const session = await createSession(user.id);
-        res.cookie('sessionId', session, {
-            expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
-            secure: false,
-            httpOnly: true,
-            sameSite: 'strict',
-        });
+        setSessionCookie(res, session);
         // Successful authentication
         res.redirect('http://localhost:5173');
     })(req, res, next);
@@ -487,4 +383,85 @@ function areSessionParamsValid(session) {
 
 function areUserParamsValid(user) {
     return user && user.username && user.password && user.count && user.login_type && user.refresh_jwt_version;
+}
+
+function clearCookie(res, cookieName) {
+    res.cookie(cookieName, null, {
+        expires: 0,
+        secure: false,
+        httpOnly: true,
+        sameSite: 'strict',
+    });
+}
+
+async function handleJwtTokenRefresh(res, refreshJwtToken, errorPrefix) {
+    const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
+    const returnData = {
+        userId: null,
+        user: null,
+        error: null,
+    }
+    try {
+        const payload = jwt.verify(refreshJwtToken, secret);
+        returnData.userId = payload.userId;
+        const userResponse = await queryDatabase(
+            `SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`,
+            [userId]
+        );
+        if (!areUserParamsValid(userResponse)) {
+            returnData.error = {
+                message: 'no_valid_params',
+            };
+            return returnData;
+        }
+
+        returnData.user = mapDatabaseUser(userResponse);
+
+        if (returnData.user.refreshJwtVersion !== payload?.version) {
+            console.error(`[${errorPrefix}] Refresh JWT version doesnt match`);
+            // res.status(401).send();
+            returnData.error = {
+                message: 'no_version_match',
+            };
+            return returnData;
+        } else {
+            const authJwtToken = await createJwt(returnData.userId);
+            setAuthJwtCookie(res, authJwtToken);
+        }
+        return returnData;
+    } catch (error) {
+        console.error(`[${errorPrefix}] Error verifying refreshJWT`, error);
+        // res.status(401).send();
+        returnData.error = {
+            message: 'unknown_error',
+        };
+        return returnData;
+    }
+}
+
+function setSessionCookie(res, sessionId) {
+    res.cookie('sessionId', sessionId, {
+        expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
+        secure: false,
+        httpOnly: true,
+        sameSite: 'strict',
+    });
+}
+
+function setRefreshJwtCookie(res, jwtToken) {
+    res.cookie('refreshJwtToken', jwtToken, {
+        expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+        secure: false,
+        httpOnly: true,
+        sameSite: 'strict',
+    });
+}
+
+function setAuthJwtCookie(res, jwtToken) {
+    res.cookie('authJwtToken', jwtToken, {
+        expires: new Date(Date.now() + 1000 * 60 * 2),
+        secure: false,
+        httpOnly: true,
+        sameSite: 'strict',
+    });
 }
