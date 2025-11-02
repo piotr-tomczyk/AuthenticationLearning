@@ -40,23 +40,22 @@ app.get('/api/me', async (req, res) => {
     let user;
 
     if (cookieValueExists(sessionId)) {
-        const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
-        if (!areSessionParamsValid(sessionResponse)) {
+        const session = await getSessionFromDb(sessionId);
+        if (!session) {
             res.json({
                 loggedIn: false,
             });
             return;
         }
-        const session = mapDatabaseSession(sessionResponse);
 
-        userId = session.userId;
-
-        if (session.expiresAt?.getTime() < Date.now()) {
+        if (isSessionExpired(session)) {
             res.json({
                 loggedIn: false,
             })
             return;
         }
+
+        userId = session.userId;
     } else if (cookieValueExists(refreshJwtToken)) {
         const handleRefreshTokenResponse
             = await handleJwtTokenRefresh(res, refreshJwtToken, 'api/me');
@@ -79,13 +78,11 @@ app.get('/api/me', async (req, res) => {
     }
 
     if (!user) {
-        const userResponse = await queryDatabase(`SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`, [userId]);
-        if (!areUserParamsValid(userResponse)) {
+        user = await getUserFromDbById(userId);
+        if (!user) {
             res.status(404).send();
             return;
         }
-
-        user = mapDatabaseUser(userResponse);
     }
 
     res.json({
@@ -98,25 +95,21 @@ app.get('/api/me', async (req, res) => {
 app.post('/api/register', async (req, res) => {
     const { username, password, withJwt, } = req.body;
     try {
-        const user = await queryDatabase(`SELECT username FROM ${USERS_TABLE_NAME} WHERE username = $1`, [username]);
+        const user = await getUserFromDbByUsername(username);
         if (user?.username) {
             res.status(400).send({ loggedIn: false });
             return;
         }
 
-        const hashedPassword = await generatePassword(password);
-        const userId = crypto.randomUUID();
-        await queryDatabase(`INSERT INTO ${USERS_TABLE_NAME} (userid, username, password) VALUES ($1, $2, $3)`, [userId, username, hashedPassword]);
-        if (withJwt) {
-            const authJwtToken = await createJwt(userId);
-            const refreshJwtToken = await createRefreshJwt(userId, "1");
+        const userId = await createUserWithPasswordInDb(username, password);
 
-            setAuthJwtCookie(res, authJwtToken)
-            setRefreshJwtCookie(res, refreshJwtToken);
+        if (withJwt) {
+            await createJwtTokensInDbAndSetCookies({ userId, refreshJwtTokenVersion: '1' }, res);
         } else {
             const session = await createSession(userId);
             setSessionCookie(res, session);
         }
+
         res.setHeader('Content-Type', 'application/json');
         res.status(201).json({ loggedIn: true, username, count: 0 });
     } catch(error) {
@@ -128,13 +121,11 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { username, password, withJwt, } = req.body;
     try {
-        const userResponse = await queryDatabase(`SELECT * FROM ${USERS_TABLE_NAME} WHERE username = $1 AND login_type != $2`, [username, 'discord']);
-        if (!areUserParamsValid(userResponse)) {
+        const user = await getNonDiscordUserFromDbByUsername(username);
+        if (!user) {
             res.status(400).send({ loggedIn: false });
             return;
         }
-
-        const user = mapDatabaseUser(userResponse);
 
         const isPasswordValid = await validatePassword(password, user.password);
         if (!isPasswordValid) {
@@ -142,13 +133,7 @@ app.post('/api/login', async (req, res) => {
             return;
         }
         if (withJwt) {
-            const userId = user.userId;
-            const refreshTokenVersion = user.refreshJwtVersion;
-            const authJwtToken = await createJwt(userId);
-            const refreshJwtToken = await createRefreshJwt(userId, refreshTokenVersion);
-
-            setAuthJwtCookie(res, authJwtToken)
-            setRefreshJwtCookie(res, refreshJwtToken);
+            await createJwtTokensInDbAndSetCookies(user, res);
         } else {
             const session = await createSession(user.userId);
             setSessionCookie(res, session);
@@ -163,17 +148,16 @@ app.post('/api/login', async (req, res) => {
 
 app.patch('/api/increment', async (req, res) => {
     const { sessionId, authJwtToken, refreshJwtToken } = req.cookies;
-    if (!cookieValueExists(sessionId) && !cookieValueExists(authJwtToken) && !cookieValueExists(refreshJwtToken)) {
+    if (!cookieValuesExist(req.cookies)) {
         res.status(401).send();
         return;
     }
     let userId;
-    let user;
     if (cookieValueExists(authJwtToken)) {
-        const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8', expiresIn: "5m" });
+        const secret = await getPrivateKey();
         try {
-            const payload = jwt.verify(authJwtToken, secret);
-            userId = payload.userId;
+            const payload = verifyJwtToken(authJwtToken, secret);
+            userId = payload?.userId;
         } catch (error) {
             if (error.message !== 'jwt expired') {
                 console.error('api/increment Error verifying authJWT', error);
@@ -194,20 +178,21 @@ app.patch('/api/increment', async (req, res) => {
             userId = handleRefreshTokenResponse.userId;
         }
     } else {
-        const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
-        if (!areSessionParamsValid(sessionResponse)) {
+        const session = await getSessionFromDb(sessionId);
+        if (!session) {
             res.status(401).send();
             return;
         }
 
-        const session = mapDatabaseSession(sessionResponse);
-        if (session.expiresAt.getTime() < Date.now()) {
+        if (isSessionExpired(session)) {
             res.status(401).send();
             return;
         }
+
         userId = session.userId;
     }
-    const count = await queryDatabase(`UPDATE ${USERS_TABLE_NAME} SET count = count + 1 WHERE userid=$1 RETURNING count`, [userId]);
+
+    const count = await increaseUserCountPropertyInDb(userId);
     res.status(200).send({
         count,
     });
@@ -226,15 +211,11 @@ app.post('/api/signout', async (req, res) => {
         }
 
         if (cookieValueExists(refreshJwtToken)) {
-            const secret = await fs.readFile('./private_key.pem', { encoding: 'utf8' });
+            const secret = await getPrivateKey();
             try {
-                const payload = jwt.verify(refreshJwtToken, secret);
+                const payload = verifyJwtToken(refreshJwtToken, secret);
                 const { userId } = payload;
-                const newVersion = crypto.randomUUID();
-                await queryDatabase(
-                    `UPDATE ${USERS_TABLE_NAME} SET refresh_jwt_version = $1 WHERE userid = $2;`,
-                    [newVersion, userId]
-                );
+                await updateRefreshTokenVersionInDbForUser(userId)
             } catch (error) {
                 console.error('api/signout Error verifying refreshJWT or updating refresh_token_version', error);
                 res.status(401).send();
@@ -244,16 +225,14 @@ app.post('/api/signout', async (req, res) => {
             clearCookie(res, 'authJwtToken');
         }
         if (cookieValueExists(sessionId)) {
-            const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
-            if (!areSessionParamsValid(sessionResponse)) {
-
+            const session = await getSessionFromDb(sessionId);
+            if (!session) {
                 clearCookie(res, 'sessionId');
                 res.status(401).send();
                 return;
             }
 
-            await queryDatabase(`DELETE FROM ${SESSIONS_TABLE_NAME} WHERE sessionid=$1`, [sessionId]);
-
+            await deleteSessionFromDbById(sessionId);
             clearCookie(res, 'sessionId');
         }
         res.status(200).send();
@@ -272,7 +251,7 @@ app.get('/api/discord/callback', (req, res, next) => {
     passport.authenticate('discord', { failureRedirect: '/' }, async (user) => {
         const session = await createSession(user.id);
         setSessionCookie(res, session);
-        // Successful authentication
+
         res.redirect('http://localhost:5173');
     })(req, res, next);
 });
@@ -282,8 +261,9 @@ app.listen(port, () => {
 })
 
 async function createSession(userId) {
-    await queryDatabase(`DELETE FROM ${SESSIONS_TABLE_NAME} WHERE expiresat<to_timestamp($1)`, [Math.floor(Date.now() / 1000)]);
+    await deleteExpiredSessionFromDb();
     const sessionId = crypto.randomUUID();
+    await insertSessionIntoDb({ sessionId, userId , expiresAt: (Date.now() + 1000 * 3600 * 24 * 30) / 1000 })
     await queryDatabase(`INSERT INTO ${SESSIONS_TABLE_NAME} (sessionid, userid, expiresat) VALUES ($1, $2, to_timestamp($3))`, [sessionId, userId, Math.floor((Date.now() + 1000 * 3600 * 24 * 30) / 1000)]);
     return sessionId;
 }
@@ -431,7 +411,6 @@ async function handleJwtTokenRefresh(res, refreshJwtToken, errorPrefix) {
         return returnData;
     } catch (error) {
         console.error(`[${errorPrefix}] Error verifying refreshJWT`, error);
-        // res.status(401).send();
         returnData.error = {
             message: 'unknown_error',
         };
@@ -464,4 +443,120 @@ function setAuthJwtCookie(res, jwtToken) {
         httpOnly: true,
         sameSite: 'strict',
     });
+}
+
+async function getSessionFromDb(sessionId) {
+    const sessionResponse = await queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
+    if (!areSessionParamsValid(sessionResponse)) {
+        return null;
+    }
+    const session = mapDatabaseSession(sessionResponse);
+    return session;
+}
+
+function isSessionExpired(session) {
+    return session.expiresAt?.getTime() < Date.now();
+}
+
+async function deleteSessionFromDbById(sessionId) {
+    return queryDatabase(`DELETE FROM ${SESSIONS_TABLE_NAME} WHERE sessionid=$1`, [sessionId]);
+}
+
+async function deleteExpiredSessionFromDb() {
+    return queryDatabase(
+        `DELETE FROM ${SESSIONS_TABLE_NAME} WHERE expiresat<to_timestamp($1)`,
+        [Math.floor(Date.now() / 1000)]
+    );
+}
+
+async function insertSessionIntoDb(params) {
+    const { sessionId, userId, expiresAt, } = params;
+    return queryDatabase(
+        `INSERT INTO ${SESSIONS_TABLE_NAME} (sessionid, userid, expiresat) VALUES ($1, $2, to_timestamp($3))`,
+        [sessionId, userId, Math.floor(expiresAt)],
+    );
+}
+
+async function getUserFromDbById(userId) {
+    const userResponse = await queryDatabase(
+        `SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`,
+        [userId]
+    );
+    if (!areUserParamsValid(userResponse)) {
+        return null;
+    }
+
+    return mapDatabaseUser(userResponse);
+}
+
+async function getUserFromDbByUsername(username) {
+    const userResponse = await queryDatabase(
+        `SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`,
+        [username]
+    );
+    if (!areUserParamsValid(userResponse)) {
+        return null;
+    }
+
+    return mapDatabaseUser(userResponse);
+}
+
+async function getNonDiscordUserFromDbByUsername(username) {
+    const userResponse = await queryDatabase(
+        `SELECT * FROM ${USERS_TABLE_NAME} WHERE username = $1 AND login_type != $2`,
+        [username, 'discord']
+    );
+
+    if (!areUserParamsValid(userResponse)) {
+        return null;
+    }
+
+    return mapDatabaseUser(userResponse);
+}
+
+async function insertUserIntoDb(params) {
+    const { userId, username, hashedPassword } = params;
+    return queryDatabase(
+        `INSERT INTO ${USERS_TABLE_NAME} (userid, username, password) VALUES ($1, $2, $3)`,
+        [userId, username, hashedPassword]
+    );
+}
+
+async function createUserWithPasswordInDb(username, password) {
+    const hashedPassword = await generatePassword(password);
+    const userId = crypto.randomUUID();
+    await insertUserIntoDb({ userId, username, hashedPassword });
+    return userId;
+}
+
+async function createJwtTokensInDbAndSetCookies(params, res) {
+    const { userId, refreshTokenVersion } = params;
+    const authJwtToken = await createJwt(userId);
+    const refreshJwtToken = await createRefreshJwt(userId, refreshTokenVersion);
+
+    setAuthJwtCookie(res, authJwtToken)
+    setRefreshJwtCookie(res, refreshJwtToken);
+}
+
+async function getPrivateKey() {
+    return fs.readFile('./private_key.pem', { encoding: 'utf8' });
+}
+
+async function increaseUserCountPropertyInDb(userId) {
+    return queryDatabase(
+        `UPDATE ${USERS_TABLE_NAME} SET count = count + 1 WHERE userid=$1 RETURNING count`,
+        [userId]
+    );
+}
+
+function verifyJwtToken(jwtToken, secret) {
+    return jwt.verify(jwtToken, secret);
+}
+
+async function updateRefreshTokenVersionInDbForUser(userId) {
+    const newRefreshTokenVersion = crypto.randomUUID();
+    return queryDatabase(
+        `UPDATE ${USERS_TABLE_NAME} SET refresh_jwt_version = $1 WHERE userid = $2;`,
+        [newRefreshTokenVersion, userId]
+    );
 }
