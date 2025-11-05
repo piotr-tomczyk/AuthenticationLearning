@@ -12,7 +12,7 @@ function mapDatabaseUser(user) {
 }
 
 function areUserParamsValid(user) {
-    return user && user.username && user.password && user.count && user.login_type && user.refresh_jwt_version;
+    return user && (typeof user.username === 'string') && (typeof user.password === 'string') && (typeof user.count === 'number') && (typeof user.login_type === 'string') && (typeof user.refresh_jwt_version === 'string');
 }
 
 module.exports = {

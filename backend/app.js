@@ -8,15 +8,16 @@ const connectionString = "postgres://postgres:admin@localhost:5432/auth";
 const DiscordStrategy = require('passport-discord').Strategy;
 const passport = require('passport');
 const dotenv = require('dotenv').config()
-const DatabaseService = require('./services/DatabaseService');
-const CookieService = require('./services/CookieService');
-const JwtService = require('./services/JwtService');
-const SessionService = require('./services/SessionService');
-const UserService = require('./services/UserService');
-const { isSessionExpired } = require('./utils/SessionUtils');
-const { cookieValueExists } = require('./utils/CookieUtils');
-const { getPrivateKey } = require('./utils/JwtUtils');
-const { areUserParamsValid, USERS_TABLE_NAME } = require('./utils/UserUtils');
+const DatabaseService = require('./services/DatabaseService.js');
+const CookieService = require('./services/CookieService.js');
+const JwtService = require('./services/JwtService.js');
+const SessionService = require('./services/SessionService.js');
+const UserService = require('./services/UserService.js');
+const PasswordService = require('./services/PasswordService.js');
+const { isSessionExpired } = require('./utils/SessionUtils.js');
+const { cookieValueExists } = require('./utils/CookieUtils.js');
+const { getPrivateKey } = require('./utils/JwtUtils.js');
+const { areUserParamsValid, USERS_TABLE_NAME } = require('./utils/UserUtils.js');
 
 const client = new pg.Client(connectionString);
 client.connect();
@@ -206,7 +207,7 @@ app.patch('/api/increment', async (req, res) => {
 
     const count = await databaseService.increaseUserCountProperty(userId);
     res.status(200).send({
-        count,
+        count: count?.count,
     });
 });
 

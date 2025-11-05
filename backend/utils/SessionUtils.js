@@ -3,7 +3,7 @@ const ONE_DAY = 3600 * 24;
 const THIRTY_DAYS = ONE_DAY * 30;
 
 function areSessionParamsValid(session) {
-    return session && session.userid && session.expiresat;
+    return session && (typeof session.userid === 'string') && (typeof session.expiresat === 'object');
 }
 
 function mapDatabaseSession(session) {

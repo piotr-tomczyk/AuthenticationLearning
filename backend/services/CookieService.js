@@ -1,4 +1,4 @@
-import { cookieValueExists } from '../utils/CookieUtils';
+const { cookieValueExists } = require('../utils/CookieUtils.js');
 
 class CookieService {
     cookieValuesExist(cookies) {

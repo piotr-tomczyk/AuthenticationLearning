@@ -1,4 +1,5 @@
-const { THIRTY_DAYS } = require('../utils/SessionUtils');
+const crypto = require('node:crypto');
+const { THIRTY_DAYS } = require('../utils/SessionUtils.js');
 
 class SessionService {
     constructor(databaseService) {

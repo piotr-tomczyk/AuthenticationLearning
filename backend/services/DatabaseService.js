@@ -1,6 +1,6 @@
-const { areSessionParamsValid, mapDatabaseSession, SESSIONS_TABLE_NAME } = require('../utils/SessionUtils');
-const { areUserParamsValid, mapDatabaseUser, USERS_TABLE_NAME } = require('../utils/UserUtils');
 const crypto = require('node:crypto');
+const { areSessionParamsValid, mapDatabaseSession, SESSIONS_TABLE_NAME } = require('../utils/SessionUtils.js');
+const { areUserParamsValid, mapDatabaseUser, USERS_TABLE_NAME } = require('../utils/UserUtils.js');
 
 class DatabaseService {
     constructor(sqlClient) {
@@ -35,7 +35,7 @@ class DatabaseService {
 
     async getUserByUsername(username) {
         const userResponse = await this.queryDatabase(
-            `SELECT * FROM ${USERS_TABLE_NAME} WHERE userid = $1`,
+            `SELECT * FROM ${USERS_TABLE_NAME} WHERE username = $1`,
             [username]
         );
         if (!areUserParamsValid(userResponse)) {

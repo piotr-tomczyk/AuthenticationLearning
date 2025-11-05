@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { ONE_MINUTE, THIRTY_DAYS, DEFAULT_JWT_REFRESH_VERSION, getPrivateKey } = require('../utils/JwtUtils');
+const { ONE_MINUTE, THIRTY_DAYS, DEFAULT_JWT_REFRESH_VERSION, getPrivateKey } = require('../utils/JwtUtils.js');
 
 class JwtService {
     constructor(databaseService, cookieService) {
@@ -18,7 +18,7 @@ class JwtService {
         try {
             const payload = jwt.verify(refreshJwtToken, secret);
             returnData.userId = payload.userId;
-            const user = await this.databaseService.getUserById(userId);
+            const user = await this.databaseService.getUserById(payload.userId);
             if (!user) {
                 returnData.error = {
                     message: 'no_valid_params',
