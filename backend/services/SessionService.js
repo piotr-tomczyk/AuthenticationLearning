@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { THIRTY_DAYS } = require('../utils/SessionUtils.js');
+const { TIME_SECONDS } = require('../utils/constants.js');
 
 class SessionService {
     constructor(databaseService) {
@@ -9,7 +9,7 @@ class SessionService {
     async createSession(userId) {
         await this.databaseService.deleteExpiredSessions();
         const sessionId = crypto.randomUUID();
-        await this.databaseService.insertSession({ sessionId, userId , expiresAt: (Date.now() + THIRTY_DAYS) })
+        await this.databaseService.insertSession({ sessionId, userId , expiresAt: (Date.now() + TIME_SECONDS.THIRTY_DAYS) })
         return sessionId;
     }
 }

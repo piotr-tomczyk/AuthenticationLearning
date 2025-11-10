@@ -1,4 +1,5 @@
 const { cookieValueExists } = require('../utils/CookieUtils.js');
+const { COOKIE_NAMES, COOKIE_SETTINGS, TIME } = require('../utils/constants.js');
 
 class CookieService {
     cookieValuesExist(cookies) {
@@ -9,36 +10,36 @@ class CookieService {
     clearCookie(res, cookieName) {
         res.cookie(cookieName, null, {
             expires: 0,
-            secure: false,
-            httpOnly: true,
-            sameSite: 'strict',
+            secure: COOKIE_SETTINGS.SECURE,
+            httpOnly: COOKIE_SETTINGS.HTTP_ONLY,
+            sameSite: COOKIE_SETTINGS.SAME_SITE,
         });
     }
 
     setSessionCookie(res, sessionId) {
-        res.cookie('sessionId', sessionId, {
-            expires: new Date(Date.now() + 1000 * 3600 * 24 * 30),
-            secure: false,
-            httpOnly: true,
-            sameSite: 'strict',
+        res.cookie(COOKIE_NAMES.SESSION_ID, sessionId, {
+            expires: new Date(Date.now() + TIME.THIRTY_DAYS_MS),
+            secure: COOKIE_SETTINGS.SECURE,
+            httpOnly: COOKIE_SETTINGS.HTTP_ONLY,
+            sameSite: COOKIE_SETTINGS.SAME_SITE,
         });
     }
 
     setRefreshJwtCookie(res, jwtToken) {
-        res.cookie('refreshJwtToken', jwtToken, {
-            expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
-            secure: false,
-            httpOnly: true,
-            sameSite: 'strict',
+        res.cookie(COOKIE_NAMES.REFRESH_JWT_TOKEN, jwtToken, {
+            expires: new Date(Date.now() + TIME.THIRTY_DAYS_MS),
+            secure: COOKIE_SETTINGS.SECURE,
+            httpOnly: COOKIE_SETTINGS.HTTP_ONLY,
+            sameSite: COOKIE_SETTINGS.SAME_SITE,
         });
     }
 
     setAuthJwtCookie(res, jwtToken) {
-        res.cookie('authJwtToken', jwtToken, {
-            expires: new Date(Date.now() + 1000 * 60 * 2),
-            secure: false,
-            httpOnly: true,
-            sameSite: 'strict',
+        res.cookie(COOKIE_NAMES.AUTH_JWT_TOKEN, jwtToken, {
+            expires: new Date(Date.now() + TIME.TWO_MINUTES_MS),
+            secure: COOKIE_SETTINGS.SECURE,
+            httpOnly: COOKIE_SETTINGS.HTTP_ONLY,
+            sameSite: COOKIE_SETTINGS.SAME_SITE,
         });
     }
 }

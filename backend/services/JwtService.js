@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
-const { ONE_MINUTE, THIRTY_DAYS, DEFAULT_JWT_REFRESH_VERSION, getPrivateKey } = require('../utils/JwtUtils.js');
+const { getPrivateKey } = require('../utils/JwtUtils.js');
+const { TIME, JWT, ERROR_MESSAGES } = require('../utils/constants.js');
 
 class JwtService {
     constructor(databaseService, cookieService) {
@@ -21,7 +22,7 @@ class JwtService {
             const user = await this.databaseService.getUserById(payload.userId);
             if (!user) {
                 returnData.error = {
-                    message: 'no_valid_params',
+                    message: ERROR_MESSAGES.NO_VALID_PARAMS,
                 };
                 return returnData;
             }
@@ -31,7 +32,7 @@ class JwtService {
             if (returnData.user.refreshJwtVersion !== payload?.version) {
                 console.error(`[${errorPrefix}] Refresh JWT version doesnt match`);
                 returnData.error = {
-                    message: 'no_version_match',
+                    message: ERROR_MESSAGES.NO_VERSION_MATCH,
                 };
                 return returnData;
             } else {
@@ -42,7 +43,7 @@ class JwtService {
         } catch (error) {
             console.error(`[${errorPrefix}] Error verifying refreshJWT`, error);
             returnData.error = {
-                message: 'unknown_error',
+                message: ERROR_MESSAGES.UNKNOWN_ERROR,
             };
             return returnData;
         }
@@ -64,17 +65,17 @@ class JwtService {
             userId,
         };
         const secret = await getPrivateKey();
-        const jwtToken = jwt.sign(payload, secret, { algorithm: 'RS256', expiresIn: ONE_MINUTE });
+        const jwtToken = jwt.sign(payload, secret, { algorithm: JWT.ALGORITHM, expiresIn: TIME.ONE_MINUTE });
         return jwtToken;
     }
 
-    async createRefreshJwt(userId, version = DEFAULT_JWT_REFRESH_VERSION) {
+    async createRefreshJwt(userId, version = JWT.DEFAULT_REFRESH_VERSION) {
         const payload = {
             userId,
             version,
         };
         const secret = await getPrivateKey();
-        const jwtToken = jwt.sign(payload, secret, { algorithm: 'RS256', expiresIn: THIRTY_DAYS });
+        const jwtToken = jwt.sign(payload, secret, { algorithm: JWT.ALGORITHM, expiresIn: TIME.THIRTY_DAYS });
         return jwtToken;
     }
 

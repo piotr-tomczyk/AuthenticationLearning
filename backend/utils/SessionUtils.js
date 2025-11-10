@@ -1,6 +1,4 @@
-const SESSIONS_TABLE_NAME = 'auth.public.sessions';
-const ONE_DAY = 3600 * 24;
-const THIRTY_DAYS = ONE_DAY * 30;
+const { SESSIONS_TABLE_NAME } = require('./constants.js');
 
 function areSessionParamsValid(session) {
     return session && (typeof session.userid === 'string') && (typeof session.expiresat === 'object');
@@ -23,5 +21,4 @@ module.exports = {
     mapDatabaseSession,
     isSessionExpired,
     SESSIONS_TABLE_NAME,
-    THIRTY_DAYS,
 };
