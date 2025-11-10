@@ -4,5 +4,6 @@
 - [x] Add Discord oAuth
 - [x] Improve JWT method with refresh token
 - [x] Switch from express to bun (Not feasible)
-- [ ] Refactor code
+- [x] Refactor code
+- [ ] Try NeverThrow
 - [ ] Deploy to Vercel
