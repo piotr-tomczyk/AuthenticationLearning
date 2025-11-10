@@ -66,6 +66,14 @@ class DatabaseService {
         );
     }
 
+    async insertDiscordUser(params) {
+        const { id, username } = params;
+        return this.queryDatabase(
+            `INSERT INTO ${USERS_TABLE_NAME} (userid, username, password, login_type) VALUES ($1, $2, $3, $4)`,
+            [id, username, '', 'discord']
+        );
+    }
+
     async updateRefreshTokenVersionForUser(userId) {
         const newRefreshTokenVersion = crypto.randomUUID();
         return this.queryDatabase(
