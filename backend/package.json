@@ -16,6 +16,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "neverthrow": "^8.2.0",
     "passport": "^0.7.0",
     "passport-discord": "^0.1.4",
     "pg": "^8.16.3"

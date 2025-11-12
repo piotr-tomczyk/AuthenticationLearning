@@ -29,7 +29,7 @@ const TIME = {
     ONE_HOUR_MS: 1000 * 60 * 60,
     ONE_DAY_MS: 1000 * 60 * 60 * 24,
     THIRTY_DAYS_MS: 1000 * 60 * 60 * 24 * 30,
-    
+
     // JWT expiration strings
     ONE_MINUTE: '1m',
     THIRTY_DAYS: '30d',
@@ -79,6 +79,11 @@ const DISCORD = {
     FAILURE_REDIRECT: '/',
 };
 
+const ERROR_TYPES = {
+    SQL_QUERY_ERROR: 'sqlQueryError',
+    SESSION_PARSE_ERROR: 'sessionParseError',
+};
+
 const ERROR_MESSAGES = {
     NO_VALID_PARAMS: 'no_valid_params',
     NO_VERSION_MATCH: 'no_version_match',
@@ -92,6 +97,7 @@ const LOG_PREFIX = {
     SIGNOUT: 'api/signout',
     INCREMENT: 'api/increment',
     DISCORD_AUTH: 'Error authenticating with discord',
+    MIDDLEWARE_AUTH: 'authMiddleware',
 };
 
 const RESPONSE = {
@@ -111,41 +117,42 @@ module.exports = {
     FRONTEND_URL,
     FRONTEND_PORT,
     BACKEND_URL,
-    
+
     // Database
     DB_CONNECTION_STRING,
     SESSIONS_TABLE_NAME,
-    
+
     // Cookies
     COOKIE_NAMES,
     COOKIE_SETTINGS,
-    
+
     // Time
     TIME,
     TIME_SECONDS,
-    
+
     // JWT
     JWT,
-    
+
     // Routes
     API_ROUTES,
-    
+
     // HTTP
     HTTP_STATUS,
     HTTP_HEADERS,
-    
+
     // Discord
     DISCORD,
-    
+
     // Errors
     ERROR_MESSAGES,
-    
+    ERROR_TYPES,
+
     // Logs
     LOG_PREFIX,
-    
+
     // Response
     RESPONSE,
-    
+
     // CORS
     CORS_CONFIG,
 };

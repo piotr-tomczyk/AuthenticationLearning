@@ -17,6 +17,7 @@ const { createRegisterDiscordAuthMiddleware } = require('./middlewares/discordMi
 const createAuthRoutes = require('./routes/authRoutes.js');
 const createDiscordRoutes = require('./routes/discordRoutes.js');
 const createIncrementRoutes = require('./routes/incrementRoutes.js');
+const { ResultAsync, ok, okAsync, errAsync } = require("neverthrow");
 
 const client = new pg.Client(DB_CONNECTION_STRING);
 client.connect();
@@ -56,3 +57,25 @@ app.listen(SERVER_PORT, () => {
   console.log(`Example app listening on port ${SERVER_PORT}`)
 })
 
+
+
+async function neverThrow() {
+    return ResultAsync.fromPromise(
+        new Promise((res, rej) => {res({id: '1', data: {id: '2'}})}),
+        (error) => ({type: 'dbError', errors: error})
+    )
+    .andThen((res) => {
+        return okAsync(res.data);
+    })
+    .andThrough(() => {
+        return ok(true);
+    })
+}
+
+neverThrow().then((val) => {
+    if (val.isErr()) {
+        console.log(val)
+    } else {
+        console.log(val)
+    }
+})

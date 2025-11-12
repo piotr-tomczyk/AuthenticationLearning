@@ -1,24 +1,31 @@
 const crypto = require('node:crypto');
 const { areSessionParamsValid, mapDatabaseSession, SESSIONS_TABLE_NAME } = require('../utils/SessionUtils.js');
 const { areUserParamsValid, mapDatabaseUser, USERS_TABLE_NAME } = require('../utils/UserUtils.js');
+const { ResultAsync, okAsync } = require('neverthrow');
+const { ERROR_TYPES } = require('../utils/constants');
 
 class DatabaseService {
     constructor(sqlClient) {
         this.client = sqlClient;
     }
 
-    async queryDatabase(query, variables) {
-        const response = await this.client.query(query, variables);
-        return response?.rows?.[0];
+    queryDatabase(query, variables) {
+        return ResultAsync.fromPromise(
+            this.client.query(query, variables),
+            (error) => ({ type: ERROR_TYPES.SQL_QUERY_ERROR, query, errors: error }),
+        ).andThen(
+            (result) => okAsync(result?.rows?.[0]),
+        );
     }
 
-    async getSession(sessionId) {
-        const sessionResponse = await this.queryDatabase(`SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]);
-        if (!areSessionParamsValid(sessionResponse)) {
-            return null;
-        }
-        const session = mapDatabaseSession(sessionResponse);
-        return session;
+    getSession(sessionId) {
+        const sessionResponse = this.queryDatabase(
+            `SELECT * FROM ${SESSIONS_TABLE_NAME} WHERE sessionid = $1`, [sessionId]
+        );
+
+        return sessionResponse
+            .andThrough((sessionResponse) => areSessionParamsValid(sessionResponse))
+            .map((sessionResponse) => mapDatabaseSession(sessionResponse));
     }
 
     async getUserById(userId) {

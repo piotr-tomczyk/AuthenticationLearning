@@ -1,7 +1,13 @@
 const { SESSIONS_TABLE_NAME } = require('./constants.js');
+const { okAsync, errAsync } = require('neverthrow');
+const { ERROR_TYPES } = require('./constants');
 
 function areSessionParamsValid(session) {
-    return session && (typeof session.userid === 'string') && (typeof session.expiresat === 'object');
+    if(session && (typeof session.userid === 'string') && (typeof session.expiresat === 'object')) {
+        return okAsync(true);
+    } else {
+        return errAsync({ type: ERROR_TYPES.SESSION_PARSE_ERROR, message: 'Error when parsing session response From' });
+    }
 }
 
 function mapDatabaseSession(session) {
